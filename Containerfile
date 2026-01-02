@@ -1,8 +1,3 @@
-# Allow build scripts to be referenced without being copied into the final image
-FROM scratch AS ctx
-COPY build /build
-COPY custom /custom
-
 ###############################################################################
 # PROJECT NAME CONFIGURATION
 ###############################################################################
@@ -20,16 +15,50 @@ COPY custom /custom
 # to maintain consistency.
 ###############################################################################
 
-# Base Image
-FROM ghcr.io/ublue-os/bluefin:stable@sha256:c9411d9909708d57d8e87c160a308a4a8c795764fb4beff344340755412b9178
+###############################################################################
+# MULTI-STAGE BUILD ARCHITECTURE
+###############################################################################
+# This Containerfile follows the Bluefin architecture pattern as implemented in
+# @projectbluefin/distroless. The architecture layers OCI containers together:
+#
+# 1. Context Stage (ctx) - Combines resources from:
+#    - Local build scripts and custom files
+#    - @projectbluefin/common - Desktop configuration shared with Aurora
+#    - @projectbluefin/branding - Branding assets
+#    - @ublue-os/artwork - Artwork shared with Aurora and Bazzite
+#    - @ublue-os/brew - Homebrew integration
+#
+# 2. Base Image Options:
+#    - ghcr.io/ublue-os/silverblue-main (Fedora-based, default)
+#    - quay.io/centos-bootc/centos-bootc:stream10 (CentOS-based)
+#
+# See: https://docs.projectbluefin.io/contributing/ for architecture diagram
+###############################################################################
 
-## Other possible base images include:
+# Context stage - combine local and imported OCI container resources
+FROM scratch AS ctx
+
+COPY build /build
+COPY custom /custom
+COPY --from=ghcr.io/projectbluefin/common:latest /system_files/shared /custom
+COPY --from=ghcr.io/projectbluefin/branding:latest /system_files /custom
+COPY --from=ghcr.io/ublue-os/artwork:latest /system_files /custom
+COPY --from=ghcr.io/ublue-os/brew:latest /system_files /custom
+
+# Base Image - silverblue-main or CentOS Stream
+FROM ghcr.io/ublue-os/silverblue-main:42
+
+## Alternative base images (uncomment to use):
+# For CentOS Stream based image:
+# FROM quay.io/centos-bootc/centos-bootc:stream10
+#
+# For other Universal Blue images:
 # FROM ghcr.io/ublue-os/bazzite:latest
+# FROM ghcr.io/ublue-os/bluefin:stable
 # FROM ghcr.io/ublue-os/bluefin-nvidia:stable
-# 
-# ... and so on, here are more base images
+#
 # Universal Blue Images: https://github.com/orgs/ublue-os/packages
-# Fedora base image: quay.io/fedora/fedora-bootc:41
+# Fedora base images: quay.io/fedora/fedora-bootc:42
 # CentOS base images: quay.io/centos-bootc/centos-bootc:stream10
 
 ### /opt
@@ -44,8 +73,14 @@ FROM ghcr.io/ublue-os/bluefin:stable@sha256:c9411d9909708d57d8e87c160a308a4a8c79
 # RUN rm /opt && mkdir /opt
 
 ### MODIFICATIONS
-## make modifications desired in your image and install packages by modifying the build scripts
-## the following RUN directive does all the things required to run scripts as recommended.
+## Make modifications desired in your image and install packages by modifying the build scripts.
+## The following RUN directive mounts the ctx stage which includes:
+##   - Local build scripts from /build
+##   - Local custom files from /custom
+##   - Files from @projectbluefin/common (shared Bluefin configuration)
+##   - Files from @projectbluefin/branding (branding assets)
+##   - Files from @ublue-os/artwork (wallpapers and artwork)
+##   - Files from @ublue-os/brew (Homebrew integration)
 ## Scripts are run in numerical order (10-build.sh, 20-example.sh, etc.)
 
 RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
